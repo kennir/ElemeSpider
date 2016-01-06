@@ -1,1 +1,1 @@
-__all__ = ['DbConn']
+__all__ = ['DbManager']
