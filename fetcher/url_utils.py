@@ -25,19 +25,19 @@ def _format_url_fields():
 
 
 _FETCH_RESTAURANTS_PREDEFINED_ITEMS = [
-    {'extras%5B%5D', 'food_activity'},
-    {'extras%5B%5D', 'restaurant_activity'},
-    {'extras%5B%5D', 'certification'},
-    {'offset', '24'},
-    {'limit', '1000'},
-    {'type', 'geohash'},
+    {'key': 'extras%5B%5D', 'value': 'food_activity'},
+    {'key': 'extras%5B%5D', 'value': 'restaurant_activity'},
+    {'key': 'extras%5B%5D', 'value': 'certification'},
+    {'key': 'offset', 'value': '0'},
+    {'key': 'limit', 'value': '1000'},
+    {'key': 'type', 'value': 'geohash'},
 ]
 
 
 def _format_predefined_items():
     items = []
-    for k, v in _FETCH_RESTAURANTS_PREDEFINED_ITEMS:
-        items.append('{}={}&'.format(k, v))
+    for item in _FETCH_RESTAURANTS_PREDEFINED_ITEMS:
+        items.append('{}={}&'.format(item['key'], item['value']))
     return ''.join(items)
 
 
@@ -49,4 +49,3 @@ _FETCH_RESTAURANTS_URL = _HOST + _format_url_fields() + _format_predefined_items
 
 def create_url(geohash, category_id):
     return _FETCH_RESTAURANTS_URL.format(geohash, category_id)
-
