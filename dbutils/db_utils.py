@@ -207,22 +207,27 @@ def _create_log_table(conn):
     print('创建日志数据库...完成')
 
 
-def create_database(central, depth):
-    db_name = {
-        'grid': datetime.datetime.now().strftime("%Y-%m-%d-grid.db"),
-        'data': datetime.datetime.now().strftime("%Y-%m-%d-data.db"),
-        'log': datetime.datetime.now().strftime("%Y-%m-%d-log.db"),
+def create_db_name_dict(date=None):
+    date_part = date if date is not None else datetime.datetime.now().strftime("%Y-%m-%d")
+    return {
+        'grid': date_part + '-grid.db',
+        'data': date_part + '-data.db',
+        'log': date_part + '-log.db',
     }
-    print('初始化数据库:"{}"...'.format(db_name))
-    with sqlite3.connect(db_name['grid'], isolation_level='EXCLUSIVE') as conn:
+
+def create_database(central, depth):
+    db_names = create_db_name_dict()
+    print('初始化数据库:\n网格数据:"{}"\n商家数据:"{}"\n日志数据:"{}"...'.format(
+            db_names['grid'],db_names['data'],db_names['log']))
+    with sqlite3.connect(db_names['grid'], isolation_level='EXCLUSIVE') as conn:
         _create_grid_table(conn, central, depth)
 
-    with sqlite3.connect(db_name['data'], isolation_level='EXCLUSIVE') as conn:
+    with sqlite3.connect(db_names['data'], isolation_level='EXCLUSIVE') as conn:
         _create_restaurant_table(conn)
         _create_categery_table(conn)
 
-    with sqlite3.connect(db_name['log'], isolation_level='EXCLUSIVE') as conn:
+    with sqlite3.connect(db_names['log'], isolation_level='EXCLUSIVE') as conn:
         _create_log_table(conn)
 
     print('数据库初始化完成')
-    return db_name
+    return db_names
