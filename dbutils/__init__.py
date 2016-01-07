@@ -1,1 +1,1 @@
-__all__ = ['DbUtils']
+__all__ = ['db_utils']

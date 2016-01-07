@@ -1,3 +1,3 @@
-__all__ = ['Fetcher']
+__all__ = ['worker', 'url_utils']
 
 

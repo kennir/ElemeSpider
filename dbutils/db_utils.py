@@ -84,7 +84,10 @@ def _create_grid_table(conn, central, depth):
 
 def create_database(central, depth):
     db_name = datetime.datetime.now().strftime("%Y-%m-%d.db")
-    conn = sqlite3.connect(db_name)
+    print('初始化数据库:"{}"...'.format(db_name))
+    conn = sqlite3.connect(db_name, isolation_level='EXCLUSIVE')
     _create_grid_table(conn, central, depth)
     conn.close()
+    print('\n数据库初始化完成')
+
     return db_name

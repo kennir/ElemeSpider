@@ -20,5 +20,6 @@ def _parse_args():
 if __name__ == '__main__':
     args = _parse_args()
 
-    db_name = DbUtils.create_database(_DEFAULT_CENTRAL, _DEFAULT_DEPTH)
-    fetcher = Fetcher.Fetcher(db_name)
+    db_name = db_utils.create_database(_DEFAULT_CENTRAL, _DEFAULT_DEPTH)
+    worker = worker.Worker(db_name)
+    worker.run()
