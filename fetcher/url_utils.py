@@ -46,6 +46,12 @@ _HOST = 'http://www.ele.me/restapi/v4/restaurants?'
 _FETCH_RESTAURANTS_URL = _HOST + _format_url_fields() + _format_predefined_items() + \
                          'geohash={}&restaurant_category_id={}'
 
+_FETCH_MENU_URL = 'http://www.ele.me/restapi/v4/restaurants/{}/mutimenu'
 
-def create_url(geohash, category_id):
+
+def create_fetch_restaurant_url(geohash, category_id):
     return _FETCH_RESTAURANTS_URL.format(geohash, category_id)
+
+
+def create_fetch_menu_url(restaurant_id):
+    return _FETCH_MENU_URL.format(restaurant_id)

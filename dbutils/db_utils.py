@@ -109,7 +109,7 @@ class _MapGridIterator():
         return self._take_cell()
 
 
-def _create_grid_table(conn, central, depth):
+def _create_status_table(conn, central, depth):
     """
     Create geohash-grid table
     """
@@ -122,6 +122,14 @@ def _create_grid_table(conn, central, depth):
             fetch_status TINYINT DEFAULT 0,
             commit_date DATETIME
             );
+
+        DROP TABLE IF EXISTS restaurants;
+        CREATE TABLE restaurants
+            (
+            id INTEGER PRIMARY KEY NOT NULL,
+            fetch_status TINYINT DEFAULT 0,
+            commit_date DATETIME
+            );
     ''')
 
     grid_iter = _MapGridIterator(central, depth)
@@ -131,7 +139,7 @@ def _create_grid_table(conn, central, depth):
     print('')
 
 
-def _create_restaurant_table(conn):
+def _create_data_table(conn):
     cursor = conn.cursor()
     cursor.executescript('''
         DROP TABLE IF EXISTS restaurants;
@@ -153,9 +161,30 @@ def _create_restaurant_table(conn):
             promotion_info TEXT,
             address TEXT
             );
+
+        DROP TABLE IF EXISTS menus;
+        CREATE TABLE menus
+            (
+            id INTEGER PRIMARY KEY NOT NULL,
+            restaurant_id INTEGER NOT NULL,
+            name VARCHAR(128) NOT NULL,
+            pinyin_name VARCHAR(128),
+            rating TINYINT,
+            rating_count INTEGER,
+            price REAL,
+            month_sales INTEGER,
+            description TEXT,
+            category_id INTEGER,
+            specfoods_json TEXT
+            );
+
+        CREATE INDEX restaurant_id_idx ON menus(restaurant_id);
     ''')
     conn.commit()
-    print('创建店家数据库...完成')
+    print('创建商家数据库...完成')
+
+
+
 
 
 def _create_categery_table(conn):
@@ -202,6 +231,28 @@ def _create_log_table(conn):
             http_status_code SMALLINT NOT NULL,
             error_message TEXT
             );
+
+        DROP TABLE IF EXISTS fetch_restaurant_exception;
+        CREATE TABLE fetch_restaurant_exception
+            (
+            geohash CHARACTER(7) NOT NULL,
+            exception TEXT
+            );
+
+        DROP TABLE IF EXISTS fetch_menu_log;
+        CREATE TABLE fetch_menu_log
+            (
+            restaurant_id INTEGER NOT NULL,
+            http_status_code SMALLINT NOT NULL,
+            error_message TEXT
+            );
+
+        DROP TABLE IF EXISTS fetch_menu_exception;
+        CREATE TABLE fetch_menu_exception
+            (
+            restaurant_id INTEGER NOT NULL,
+            exception TEXT
+            );
     ''')
     conn.commit()
     print('创建日志数据库...完成')
@@ -210,20 +261,21 @@ def _create_log_table(conn):
 def create_db_name_dict(date=None):
     date_part = date if date is not None else datetime.datetime.now().strftime("%Y-%m-%d")
     return {
-        'grid': date_part + '-grid.db',
+        'status': date_part + '-status.db',
         'data': date_part + '-data.db',
         'log': date_part + '-log.db',
     }
 
+
 def create_database(central, depth):
     db_names = create_db_name_dict()
-    print('初始化数据库:\n网格数据:"{}"\n商家数据:"{}"\n日志数据:"{}"...'.format(
-            db_names['grid'],db_names['data'],db_names['log']))
-    with sqlite3.connect(db_names['grid'], isolation_level='EXCLUSIVE') as conn:
-        _create_grid_table(conn, central, depth)
+    print('初始化数据库:\n状态数据:"{}"\n商家数据:"{}"\n日志数据:"{}"...'.format(
+            db_names['status'], db_names['data'], db_names['log']))
+    with sqlite3.connect(db_names['status'], isolation_level='EXCLUSIVE') as conn:
+        _create_status_table(conn, central, depth)
 
     with sqlite3.connect(db_names['data'], isolation_level='EXCLUSIVE') as conn:
-        _create_restaurant_table(conn)
+        _create_data_table(conn)
         _create_categery_table(conn)
 
     with sqlite3.connect(db_names['log'], isolation_level='EXCLUSIVE') as conn:
@@ -231,3 +283,17 @@ def create_database(central, depth):
 
     print('数据库初始化完成')
     return db_names
+
+
+def prepare_restaurant_status_table(db_names):
+    with sqlite3.connect(db_names['data'],isolation_level='EXCLUSIVE') as data_conn:
+        data_curosr = data_conn.cursor()
+        data_rows = data_curosr.execute('select id from restaurants')
+
+        with sqlite3.connect(db_names['status'],isolation_level='EXCLUSIVE') as status_conn:
+            status_cursor = status_conn.cursor()
+            for row in data_rows:
+                status_cursor.execute('''INSERT INTO restaurants(id) VALUES(?);''', row)
+            status_conn.commit()
+
+
