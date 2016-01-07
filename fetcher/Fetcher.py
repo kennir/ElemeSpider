@@ -42,6 +42,8 @@ shop_categories = {207: [208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 
 _FETCH_RESTAURANTS_URL = 'http://www.ele.me/restapi/v4/restaurants?{}{}geohash={}&restaurant_category_id={}'
 
 
+
+
 class _FetchTask(object):
     def __init__(self):
         self.geohash = None
@@ -56,7 +58,18 @@ class Fetcher(object):
     Attributes:
         db_name: database name
     """
-
     def __init__(self, db_name):
         self.db_name = db_name
-        self._conn = sqlite3.connect(db_name)
+        self._conn = sqlite3.connect(db_name, isolation_level='EXCLUSIVE')
+
+    def _take_task(self):
+        """
+        take one task from database, and change the grid_status to 1
+        :return: geohash
+        """
+        cursor = self._conn.cursor()
+        cursor.execute('BEGIN EXCLUSIVE')
+        cursor.execute('''
+        ''')
+
+        pass

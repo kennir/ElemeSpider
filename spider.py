@@ -20,5 +20,5 @@ def _parse_args():
 if __name__ == '__main__':
     args = _parse_args()
 
-    conn = DbManager.DbManager(_DEFAULT_CENTRAL, _DEFAULT_DEPTH)
-    fetcher = Fetcher.Fetcher(conn.db_name)
+    db_name = DbUtils.create_database(_DEFAULT_CENTRAL, _DEFAULT_DEPTH)
+    fetcher = Fetcher.Fetcher(db_name)
