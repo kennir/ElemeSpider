@@ -1,12 +1,12 @@
 import json
 import multiprocessing
 import os
-import sqlite3
 import sys
 import threading
 
 import requests
 
+from dbutils import db_utils
 from fetcher import url_utils
 
 _REQUEST_TIMEOUT = 3
@@ -31,21 +31,23 @@ class RestaurantFetcher(object):
         self.num_cells = self._num_cells()
         self.num_finished = 0
         self.num_restaurants = 0
+        self._restaurant_cache = []
+        self._category_cache = []
 
     def _log_http_error(self, geohash, http_code, error_msg):
-        with sqlite3.connect(self.db_names['log']) as conn:
+        with db_utils.connect_database(self.db_names['log']) as conn:
             conn.execute('INSERT INTO fetch_restaurant_log VALUES(?,?,?)',
                          (geohash, http_code, error_msg))
             conn.commit()
 
     def _log_exception(self, geohash, exception):
-        with sqlite3.connect(self.db_names['log']) as conn:
+        with db_utils.connect_database(self.db_names['log']) as conn:
             conn.execute('INSERT INTO fetch_restaurant_exception VALUES(?,?)',
                          (geohash, exception))
             conn.commit()
 
     def _take_geohash(self):
-        with sqlite3.connect(self.db_names['status'], timeout=30, isolation_level='EXCLUSIVE') as conn:
+        with db_utils.connect_database(self.db_names['status'], isolation_level='EXCLUSIVE') as conn:
             cursor = conn.cursor()
             cursor.execute('BEGIN EXCLUSIVE')
             geohash = cursor.execute('SELECT geohash FROM grid WHERE fetch_status = 0 LIMIT 1').fetchone()
@@ -55,7 +57,7 @@ class RestaurantFetcher(object):
             return geohash
 
     def _finish_geohash(self, geohash):
-        with sqlite3.connect(self.db_names['status'], timeout=30) as conn:
+        with db_utils.connect_database(self.db_names['status']) as conn:
             cursor = conn.cursor()
             cursor.execute(
                     '''UPDATE grid SET fetch_status = 2,commit_date = datetime('now','localtime') WHERE geohash = ?''',
@@ -66,7 +68,11 @@ class RestaurantFetcher(object):
             if row is not None:
                 self.num_finished = row[0]
 
-            self._refresh_output()
+        with db_utils.connect_database(self.db_names['data']) as conn:
+            row = conn.execute('SELECT COUNT(*) FROM restaurants').fetchone()
+            if row is not None:
+                self.num_restaurants = row[0]
+        self._refresh_output()
 
     def _refresh_output(self):
         sys.stdout.write("\r抓取地图网格商家数据(%d/%d) %.2f%% 商家数:%d pid:%d" %
@@ -77,48 +83,31 @@ class RestaurantFetcher(object):
         sys.stdout.flush()
 
     def _store_restaurants(self, geohash, minor_cat, restaurants):
-        with sqlite3.connect(self.db_names['data']) as conn:
-            cursor = conn.cursor()
-
-            restaurants_json = json.loads(restaurants)
-            for r_json in restaurants_json:
-                cursor.execute('''
-                        INSERT OR IGNORE INTO restaurants VALUES
-                        (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    ''', (
-                    r_json['id'],
-                    r_json['name'],
-                    r_json['name_for_url'],
-                    r_json['rating'],
-                    r_json['rating_count'],
-                    r_json['month_sales'],
-                    r_json['phone'],
-                    r_json['latitude'],
-                    r_json['longitude'],
-                    r_json['is_free_delivery'],
-                    r_json['delivery_fee'],
-                    r_json['minimum_order_amount'],
-                    r_json['minimum_free_delivery_amount'],
-                    r_json['promotion_info'],
-                    r_json['address']
-                ))
-
-                cursor.execute('''
-                        INSERT INTO restaurant_categories(category_id,restaurant_id)
-                        SELECT ?,?
-                        WHERE NOT EXISTS(SELECT 1 FROM restaurant_categories WHERE category_id = ? AND restaurant_id = ?)
-                    ''', (
-                    minor_cat,
-                    r_json['id'],
-                    minor_cat,
-                    r_json['id'],
-                ))
-
-                row = cursor.execute('SELECT COUNT(*) FROM restaurants').fetchone()
-                if row is not None:
-                    self.num_restaurants = row[0]
-                    self._refresh_output()
-            conn.commit()
+        restaurants_json = json.loads(restaurants)
+        for r_json in restaurants_json:
+            self._restaurant_cache.append((
+                r_json['id'],
+                r_json['name'],
+                r_json['name_for_url'],
+                r_json['rating'],
+                r_json['rating_count'],
+                r_json['month_sales'],
+                r_json['phone'],
+                r_json['latitude'],
+                r_json['longitude'],
+                r_json['is_free_delivery'],
+                r_json['delivery_fee'],
+                r_json['minimum_order_amount'],
+                r_json['minimum_free_delivery_amount'],
+                r_json['promotion_info'],
+                r_json['address']
+            ))
+            self._category_cache.append((
+                minor_cat,
+                r_json['id'],
+                minor_cat,
+                r_json['id'],
+            ))
 
     def _fetch_cell_category(self, geohash, minor_cat):
         while True:
@@ -134,14 +123,30 @@ class RestaurantFetcher(object):
                 continue
 
     def _num_cells(self):
-        with sqlite3.connect(self.db_names['status'], timeout=30) as conn:
+        with db_utils.connect_database(self.db_names['status']) as conn:
             row = conn.execute('SELECT COUNT(*) FROM grid').fetchone()
             return row[0] if row is not None else 0
+
+    def _write_cache_to_database(self):
+        with db_utils.connect_database(self.db_names['data']) as conn:
+            cursor = conn.cursor()
+            cursor.executemany('''
+                INSERT OR IGNORE INTO restaurants VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ''', self._restaurant_cache)
+            cursor.executemany('''
+                INSERT INTO restaurant_categories(category_id,restaurant_id)
+                SELECT ?,?
+                WHERE NOT EXISTS(SELECT 1 FROM restaurant_categories WHERE category_id = ? AND restaurant_id = ?)
+                ''', self._category_cache)
+            conn.commit()
+        self._restaurant_cache = []
+        self._category_cache = []
 
     def _fetch_cell(self, geohash):
         for major, minors in RESTAURANT_CATEGORIES.items():
             for minor in minors:
                 self._fetch_cell_category(geohash, minor)
+        self._write_cache_to_database()
         self._finish_geohash(geohash)
 
     def run(self):
@@ -176,6 +181,7 @@ class RestaurantFetchThreading(object):
 def _fetch_restaurant_processing_worker(db_names):
     print('进程%d已启动' % os.getpid())
     RestaurantFetchThreading(db_names).run()
+    print('进程%d已结束' % os.getpid())
 
 
 class RestaurantFetchProcessing(object):
@@ -204,15 +210,16 @@ class MenuFetcher(object):
         self.num_restaurants = self._num_restaurants()
         self.num_finished = 0
         self.num_menus = 0
+        self._menu_cache = []
 
     def _log_http_error(self, restaurant_id, http_code, error_msg):
-        with sqlite3.connect(self.db_names['log']) as conn:
+        with db_utils.connect_database(self.db_names['log']) as conn:
             conn.execute('INSERT INTO fetch_menu_log VALUES(?,?,?)',
                          (restaurant_id, http_code, error_msg))
             conn.commit()
 
     def _log_exception(self, restaurant_id, exception):
-        with sqlite3.connect(self.db_names['log']) as conn:
+        with db_utils.connect_database(self.db_names['log']) as conn:
             conn.execute('INSERT INTO fetch_menu_exception VALUES(?,?)',
                          (restaurant_id, exception))
             conn.commit()
@@ -226,12 +233,12 @@ class MenuFetcher(object):
         sys.stdout.flush()
 
     def _num_restaurants(self):
-        with sqlite3.connect(self.db_names['status'], timeout=30) as conn:
+        with db_utils.connect_database(self.db_names['status']) as conn:
             row = conn.execute('SELECT COUNT(*) FROM restaurants').fetchone()
             return row[0] if row is not None else 0
 
     def _take_restaurant(self):
-        with sqlite3.connect(self.db_names['status'], timeout=30, isolation_level='EXCLUSIVE') as conn:
+        with db_utils.connect_database(self.db_names['status'], isolation_level='EXCLUSIVE') as conn:
             cursor = conn.cursor()
             cursor.execute('BEGIN EXCLUSIVE')
             row = cursor.execute('SELECT id FROM restaurants WHERE fetch_status = 0 LIMIT 1').fetchone()
@@ -240,51 +247,55 @@ class MenuFetcher(object):
             conn.commit()
             return row
 
+    def _write_cache_to_database(self):
+        with db_utils.connect_database(self.db_names['data']) as conn:
+            conn.executemany('''
+                INSERT INTO menus(restaurant_id,name,pinyin_name,rating,rating_count,price,month_sales,description,category_id,specfoods_json)
+                VALUES(?,?,?,?,?,?,?,?,?,?)
+            ''', self._menu_cache)
+            conn.commit()
+        self._menu_cache = []
+
     def _finish_restaurant(self, restaurant_id, status_code=2):
-        with sqlite3.connect(self.db_names['status'], timeout=30) as conn:
+        with db_utils.connect_database(self.db_names['status']) as conn:
             cursor = conn.cursor()
             cursor.execute(
                     '''UPDATE restaurants SET fetch_status = ?,commit_date = datetime('now','localtime') WHERE id = ?''',
                     (status_code, restaurant_id))
             conn.commit()
-            row = cursor.execute('select count(*) from restaurants where fetch_status != 0 and fetch_status != 1').fetchone()
+            row = cursor.execute(
+                    'select count(*) from restaurants where fetch_status != 0 and fetch_status != 1').fetchone()
             if row is not None:
                 self.num_finished = row[0]
+
+        with db_utils.connect_database(self.db_names['data']) as conn:
+            row = conn.execute('SELECT COUNT(*) FROM menus').fetchone()
+            if row is not None:
+                self.num_menus = row[0]
         self._refresh_output()
 
     def _calculate_price(self, specfoods_json):
         price = 0
         for f_json in specfoods_json:
-            price += f_json['price']
+            price += float(f_json['price'])
         return price
 
     def _store_menus(self, restaurant_id, menus):
-        with sqlite3.connect(self.db_names['data']) as conn:
-            cursor = conn.cursor()
-            menus_json = json.loads(menus)
-
-            for menu_category_json in menus_json:  # 分类
-                for food_json in menu_category_json['foods']:
-                    cursor.execute('''
-                        INSERT INTO menus(restaurant_id,name,pinyin_name,rating,rating_count,price,month_sales,description,category_id,specfoods_json)
-                        VALUES(?,?,?,?,?,?,?,?,?,?)
-                    ''', (
-                        food_json['restaurant_id'],
-                        food_json['name'],
-                        food_json['pinyin_name'],
-                        food_json['rating'],
-                        food_json['rating_count'],
-                        self._calculate_price(food_json['specfoods']),
-                        food_json['month_sales'],
-                        food_json['description'],
-                        food_json['category_id'],
-                        str(food_json['specfoods'])
-                    ))
-
-            row = cursor.execute('SELECT COUNT(*) FROM menus').fetchone()
-            if row is not None:
-                self.num_menus = row[0]
-            conn.commit()
+        menus_json = json.loads(menus)
+        for menu_category_json in menus_json:  # 分类
+            for food_json in menu_category_json['foods']:
+                self._menu_cache.append((
+                    food_json['restaurant_id'],
+                    food_json['name'],
+                    food_json['pinyin_name'],
+                    food_json['rating'],
+                    food_json['rating_count'],
+                    self._calculate_price(food_json['specfoods']),
+                    food_json['month_sales'],
+                    food_json['description'],
+                    food_json['category_id'],
+                    str(food_json['specfoods'])
+                ))
 
     def _fetch_restaurant(self, restaurant_id):
         while True:
@@ -307,6 +318,7 @@ class MenuFetcher(object):
         restaurant_id = self._take_restaurant()
         while restaurant_id is not None:
             self._fetch_restaurant(restaurant_id[0])
+            self._write_cache_to_database()
             restaurant_id = self._take_restaurant()
 
 
@@ -335,6 +347,7 @@ class MenuFetchThreading(object):
 def _fetch_menu_processing_worker(db_names):
     print('进程%d已启动' % os.getpid())
     MenuFetchThreading(db_names).run()
+    print('进程%d已结束' % os.getpid())
 
 
 class MenuFetchProcessing(object):

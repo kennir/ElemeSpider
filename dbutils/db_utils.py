@@ -184,9 +184,6 @@ def _create_data_table(conn):
     print('创建商家数据库...完成')
 
 
-
-
-
 def _create_categery_table(conn):
     cursor = conn.cursor()
     cursor.executescript('''
@@ -271,14 +268,14 @@ def create_database(central, depth):
     db_names = create_db_name_dict()
     print('初始化数据库:\n状态数据:"{}"\n商家数据:"{}"\n日志数据:"{}"...'.format(
             db_names['status'], db_names['data'], db_names['log']))
-    with sqlite3.connect(db_names['status'], isolation_level='EXCLUSIVE') as conn:
+    with connect_database(db_names['status'], isolation_level='EXCLUSIVE') as conn:
         _create_status_table(conn, central, depth)
 
-    with sqlite3.connect(db_names['data'], isolation_level='EXCLUSIVE') as conn:
+    with connect_database(db_names['data'], isolation_level='EXCLUSIVE') as conn:
         _create_data_table(conn)
         _create_categery_table(conn)
 
-    with sqlite3.connect(db_names['log'], isolation_level='EXCLUSIVE') as conn:
+    with connect_database(db_names['log'], isolation_level='EXCLUSIVE') as conn:
         _create_log_table(conn)
 
     print('数据库初始化完成')
@@ -286,14 +283,16 @@ def create_database(central, depth):
 
 
 def prepare_restaurant_status_table(db_names):
-    with sqlite3.connect(db_names['data'],isolation_level='EXCLUSIVE') as data_conn:
+    with connect_database(db_names['data'], isolation_level='EXCLUSIVE') as data_conn:
         data_curosr = data_conn.cursor()
         data_rows = data_curosr.execute('select id from restaurants')
 
-        with sqlite3.connect(db_names['status'],isolation_level='EXCLUSIVE') as status_conn:
+        with connect_database(db_names['status'], isolation_level='EXCLUSIVE') as status_conn:
             status_cursor = status_conn.cursor()
             for row in data_rows:
                 status_cursor.execute('''INSERT INTO restaurants(id) VALUES(?);''', row)
             status_conn.commit()
 
 
+def connect_database(db_name, isolation_level=None):
+    return sqlite3.connect(db_name, timeout=120.0, isolation_level=isolation_level)
