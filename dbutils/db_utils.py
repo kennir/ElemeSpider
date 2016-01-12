@@ -7,7 +7,7 @@ import geohash
 
 from fetcher import *
 
-_MAJOR_CATEGORY_TEXT = {
+MAJOR_CATEGORY_TEXT = {
     207: '全部快餐类',
     220: '全部正餐',
     233: '全部零食',
@@ -15,7 +15,7 @@ _MAJOR_CATEGORY_TEXT = {
     248: '全部蛋糕',
 }
 
-_MINOR_CATEGORY_TEXT = {
+MINOR_CATEGORY_TEXT = {
     208: '品牌快餐',
     209: '盖浇饭',
     210: '中式炒菜',
@@ -201,9 +201,9 @@ def _create_categery_table(conn):
         for minor in minors:
             cursor.execute('INSERT INTO category VALUES(?,?,?,?)',
                            (minor,
-                            _MINOR_CATEGORY_TEXT[minor],
+                            MINOR_CATEGORY_TEXT[minor],
                             major,
-                            _MAJOR_CATEGORY_TEXT[major]
+                            MAJOR_CATEGORY_TEXT[major]
                             ))
 
     cursor.executescript('''
@@ -255,6 +255,7 @@ def _create_log_table(conn):
     print('创建日志数据库...完成')
 
 
+
 def create_db_name_dict(date=None):
     date_part = date if date is not None else datetime.datetime.now().strftime("%Y-%m-%d")
     return {
@@ -280,6 +281,13 @@ def create_database(central, depth):
 
     print('数据库初始化完成')
     return db_names
+
+
+
+
+
+def continue_database(date):
+    db_names = create_db_name_dict(date=date)
 
 
 def prepare_restaurant_status_table(db_names):

@@ -156,54 +156,6 @@ class RestaurantFetcher(object):
             geohash = self._take_geohash()
 
 
-def _fetch_restaurant_threading_worker(db_names):
-    # print('线程%s已启动' % threading.current_thread().name)
-    RestaurantFetcher(db_names).run()
-
-
-class RestaurantFetchThreading(object):
-    def __init__(self, db_names, num_threading=8):
-        self.db_names = db_names
-        self.num_threading = num_threading
-
-    def run(self):
-        threads = []
-        for n in range(0, self.num_threading):
-            threads.append(threading.Thread(target=_fetch_restaurant_threading_worker, args=(self.db_names,)))
-
-        for thread in threads:
-            thread.start()
-
-        for thread in threads:
-            thread.join()
-
-
-def _fetch_restaurant_processing_worker(db_names):
-    print('进程%d已启动' % os.getpid())
-    RestaurantFetchThreading(db_names).run()
-    print('进程%d已结束' % os.getpid())
-
-
-class RestaurantFetchProcessing(object):
-    def __init__(self, db_names, num_processing=2):
-        self.db_names = db_names
-        self.num_processing = num_processing
-
-    def run(self):
-        processes = []
-        for n in range(0, self.num_processing):
-            processes.append(multiprocessing.Process(target=_fetch_restaurant_processing_worker, args=(self.db_names,)))
-
-        print('开始抓取商家数据...')
-        for processor in processes:
-            processor.start()
-
-        for processor in processes:
-            processor.join()
-
-        print('\n抓取商家数据完成')
-
-
 class MenuFetcher(object):
     def __init__(self, db_names):
         self.db_names = db_names
@@ -274,7 +226,8 @@ class MenuFetcher(object):
                 self.num_menus = row[0]
         self._refresh_output()
 
-    def _calculate_price(self, specfoods_json):
+    @staticmethod
+    def _sum_price(specfoods_json):
         price = 0
         for f_json in specfoods_json:
             price += float(f_json['price'])
@@ -290,7 +243,7 @@ class MenuFetcher(object):
                     food_json['pinyin_name'],
                     food_json['rating'],
                     food_json['rating_count'],
-                    self._calculate_price(food_json['specfoods']),
+                    self._sum_price(food_json['specfoods']),
                     food_json['month_sales'],
                     food_json['description'],
                     food_json['category_id'],
@@ -322,20 +275,37 @@ class MenuFetcher(object):
             restaurant_id = self._take_restaurant()
 
 
-def _fetch_menu_threading_worker(db_names):
-    # print('线程%s已启动' % threading.current_thread().name)
+def fetch_restaurant_threading(db_names):
+    RestaurantFetcher(db_names).run()
+
+
+def fetch_menu_threading(db_names):
     MenuFetcher(db_names).run()
 
 
-class MenuFetchThreading(object):
-    def __init__(self, db_names, num_threading=8):
+def fetch_restaurant_processor(db_names, num_threading):
+    print('进程%d已启动' % os.getpid())
+    ThreadingLauncher(db_names, fetch_restaurant_threading, num_threading).run()
+    print('\n进程%d已结束' % os.getpid())
+
+
+def fetch_menu_processor(db_names, num_threading):
+    print('进程%d已启动' % os.getpid())
+    ThreadingLauncher(db_names, fetch_menu_threading, num_threading).run()
+    print('\n进程%d已结束' % os.getpid())
+
+
+class ThreadingLauncher(object):
+    def __init__(self, db_names, target_func, num_threading=8):
         self.db_names = db_names
+        self.target_func = target_func
         self.num_threading = num_threading
 
     def run(self):
         threads = []
+
         for n in range(0, self.num_threading):
-            threads.append(threading.Thread(target=_fetch_menu_threading_worker, args=(self.db_names,)))
+            threads.append(threading.Thread(target=self.target_func, args=(self.db_names,)))
 
         for thread in threads:
             thread.start()
@@ -344,27 +314,21 @@ class MenuFetchThreading(object):
             thread.join()
 
 
-def _fetch_menu_processing_worker(db_names):
-    print('进程%d已启动' % os.getpid())
-    MenuFetchThreading(db_names).run()
-    print('进程%d已结束' % os.getpid())
-
-
-class MenuFetchProcessing(object):
-    def __init__(self, db_names, num_processing=2):
+class ProcessingLauncher(object):
+    def __init__(self, db_names, target_func, num_processing=2, num_threading=8):
         self.db_names = db_names
+        self.target_func = target_func
         self.num_processing = num_processing
+        self.num_threading = num_threading
 
     def run(self):
         processes = []
-        for n in range(0, self.num_processing):
-            processes.append(multiprocessing.Process(target=_fetch_menu_processing_worker, args=(self.db_names,)))
 
-        print('开始抓取菜单数据...')
+        for n in range(0, self.num_processing):
+            processes.append(multiprocessing.Process(target=self.target_func,
+                                                     args=(self.db_names, self.num_threading)))
         for processor in processes:
             processor.start()
 
         for processor in processes:
             processor.join()
-
-        print('\n抓取菜单数据完成')
