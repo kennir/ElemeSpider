@@ -1,5 +1,9 @@
 import pandas as pd
 import sqlalchemy
+from pandas import ExcelWriter
+
+
+_ORDER_BY_KEYWORD = ['rating_count', 'month_sales', 'revenue']
 
 _COLUMN_NAME_DICT = {
     'rating_count': '点评数',
@@ -29,6 +33,8 @@ class Analyzer(object):
         self.db_name = db_name
         self.order_by = 'rating_count'
         self.ranking_list_size = 10
+        self.restaurant_list_size = 25
+        self.menu_list_size = 25
 
         print('加载数据库', db_name, '...')
         print('----------------------------------------------')
@@ -196,13 +202,119 @@ class Analyzer(object):
                     axis=1)
         return df
 
+    def _generate_restaurant_report(self, restaurant_db):
+        print('--------------')
+        print('生成商家报告...')
+
+        def generate_restaurant_ranking(restaurant_db, order_by, restaurant_list_size):
+            df = restaurant_db.loc[:,
+                 ['name', 'rating_count', 'month_sales', 'revenue', _AVENAGE_PRICE]].sort_values(by=order_by,
+                                                                                                 ascending=False).drop_duplicates(
+                    subset='name').iloc[
+                 0:restaurant_list_size].reset_index(drop=True)
+
+            df = df.reindex_axis(['name', 'rating_count', 'month_sales', 'revenue', _AVENAGE_PRICE], axis=1)
+            return df
+
+        df = generate_restaurant_ranking(restaurant_db, self.order_by, self.restaurant_list_size)
+
+        for pr in _PRICE_RANGES:
+            print('生成商家报告({}-{})...'.format(pr['low'], pr['high']))
+            filter_df = restaurant_db[
+                (restaurant_db[_AVENAGE_PRICE] >= pr['low']) & (restaurant_db[_AVENAGE_PRICE] <= pr['high'])]
+            df = pd.concat([df, generate_restaurant_ranking(filter_df, self.order_by, self.restaurant_list_size)],
+                           axis=1)
+        df.columns = ['店铺名', '点评数', '销量', '营业额', '平均售价',
+                      '店铺名(<30)', '点评数(<30)', '销量(<30)', '营业额(<30)', '平均售价(<30)',
+                      '店铺名(31-50)', '点评数(31-50)', '销量(31-50)', '营业额(<31-50)', '平均售价(<31-50)',
+                      '店铺名(51-80)', '点评数(51-80)', '销量(51-80)', '营业额(<51-80)', '平均售价(<51-80)',
+                      '店铺名(81-120)', '点评数(81-120)', '销量(81-120)', '营业额(<81-120)', '平均售价(<81-120)',
+                      '店铺名(>120)', '点评数(>120)', '销量(>120)', '营业额(>120)', '平均售价(>120)']
+        return df
+
+    def _generate_menu_report(self, menus_db):
+        print('--------------')
+        print('生成菜品报告...')
+
+        f = {'rating_count': 'sum', 'month_sales': 'sum', 'price': 'mean'}
+        menus_df = menus_db.loc[:, ['name', 'rating_count', 'month_sales', 'price']].groupby('name').agg(f)
+
+        def generate_menu_ranking(menu_df, order_by, menu_list_size):
+            if order_by == 'revenue': order_by = 'price'
+            output_df = menu_df.sort_values(by=order_by, ascending=False).iloc[0:menu_list_size].reset_index(drop=False)
+            output_df = self._check_row_count(output_df, menu_list_size)
+            return output_df
+
+        df = generate_menu_ranking(menus_df, self.order_by, self.menu_list_size)
+        for pr in _PRICE_RANGES:
+            print('生成菜品报告({}-{})...'.format(pr['low'], pr['high']))
+            filter_df = menus_df[(menus_df['price'] >= pr['low']) & (menus_df['price'] <= pr['high'])]
+            df = pd.concat([df, generate_menu_ranking(filter_df, self.order_by, self.menu_list_size)], axis=1)
+
+        df.columns = ['推荐菜', '点评数', '销量', '价格',
+                      '推荐菜(<30)', '点评数(<30)', '销量(<30)', '价格(<30)',
+                      '推荐菜(31-50)', '点评数(31-50)', '销量(31-50)', '价格(31-50)',
+                      '推荐菜(51-80)', '点评数(51-80)', '销量(51-80)', '价格(51-80)',
+                      '推荐菜(81-120)', '点评数(81-120)', '销量(81-120)', '价格(81-120)',
+                      '推荐菜(>120)', '点评数(>120)', '销量(>120)', '价格(>120)']
+        return df
+
+    def _generate_restaurant_distribution(self, restaurant_db):
+        print('--------------')
+        print('生成商家分布报告...')
+
+        
+        order_by_name = _COLUMN_NAME_DICT[self.order_by]
+        columns = [{'cnt': '2.0 店铺数', 'sum': '2.1 {}'.format(order_by_name), 'avg': '2.1 平均'},
+                   {'cnt': '3.0 店铺数(<30)', 'sum': '3.1 {}(<30)'.format(order_by_name), 'avg': '3.1 平均(<30)'},
+                   {'cnt': '4.0 店铺数(31-50)', 'sum': '4.1 {}(31-50)'.format(order_by_name), 'avg': '4.1 平均(31-50)'},
+                   {'cnt': '5.0 店铺数(51-80)', 'sum': '5.1 {}(51-80)'.format(order_by_name), 'avg': '5.1 平均(51-80)'},
+                   {'cnt': '6.0 店铺数(81-120)', 'sum': '6.1 {}(81-120)'.format(order_by_name), 'avg': '6.1 平均(81-120)'},
+                   {'cnt': '7.0 店铺数(>120)', 'sum': '7.1 {}(>120)'.format(order_by_name), 'avg': '7.1 平均(>120)'}]
+
+        def count_num_restaurants(cat_name, input_df, order_by, column):
+            restaurant_df = input_df[input_df.cat_name == cat_name]
+
+            num_restaurants = restaurant_df.shape[0]
+            sum_value = restaurant_df[order_by].sum()
+            avenage_value = (sum_value / num_restaurants) if num_restaurants != 0 else 0
+
+            output_df = pd.DataFrame({
+                column['cnt']: num_restaurants,
+                column['sum']: sum_value,
+                column['avg']: avenage_value,
+            }, index=[0])
+            output_df = output_df.reindex_axis([column['cnt'], column['sum'], column['avg']], axis=1)
+            return output_df
+
+        def generate_distribution_by_category(input_df, order_by, column):
+            output_df = pd.DataFrame()
+            for idx, row in category_df.iterrows():
+                sum_df = count_num_restaurants(row['1.0 菜系品类'], input_df, order_by, column)
+                output_df = pd.concat([output_df, sum_df], ignore_index=True)
+            return output_df
+
+        category_df = self._generate_category_ranking(restaurant_db, size=self.ranking_list_size, expandable=False)
+        dist = generate_distribution_by_category(restaurant_db, self.order_by, columns[0])
+
+        column_index = 1
+        for pr in _PRICE_RANGES:
+            print('生成商家分布报告({}-{})...'.format(pr['low'], pr['high']))
+            df = restaurant_db[
+                (restaurant_db[_AVENAGE_PRICE] >= pr['low']) & (restaurant_db[_AVENAGE_PRICE] <= pr['high'])]
+            df = generate_distribution_by_category(df, self.order_by, columns[column_index])
+            column_index += 1
+            dist = pd.concat([dist, df], axis=1)
+
+        return dist
+
     def _create_excel(self, excel_filename):
         """
         生成EXCEL文件
         :param excel_filename: EXCEL文件名
         :return: None
         """
-        sheet_names = ['汇总', '<30', '31 - 50', '51 = 80', '81 - 120', '>121', '商家', '菜单', 'Dist']
+        sheet_names = ['汇总', '<30', '31 - 50', '51 = 80', '81 - 120', '>121', '商家', '菜单', '分布']
 
         reports = []
 
@@ -216,6 +328,15 @@ class Analyzer(object):
             print('生成分类榜({}-{})...'.format(price_range['low'], price_range['high']))
             reports.append(self._generate_comprehensive_report(self.restaurants_db, self.menus_db, price_range))
 
-    def generate(self, order_by):
-        self.order_by = order_by
-        self._create_excel('top({}).xlsx'.format(order_by))
+        reports.append(self._generate_restaurant_report(self.restaurants_db))
+        reports.append(self._generate_menu_report(self.menus_db))
+        reports.append(self._generate_restaurant_distribution(self.restaurants_db))
+
+        with ExcelWriter(excel_filename) as writer:
+            for idx in range(len(reports)):
+                reports[idx].to_excel(writer, sheet_names[idx])
+
+    def generate(self):
+        for order_by in _ORDER_BY_KEYWORD:
+            self.order_by = order_by
+            self._create_excel('top({}).xlsx'.format(_COLUMN_NAME_DICT[self.order_by]))

@@ -32,14 +32,14 @@ def start_new_mission():
     menu_fetcher.run()
 
 
-_ORDER_BY_KEYWORD = ['rating_count', 'month_sales', 'revenue']
+
 
 
 def start_analysis_mission(date):
     print('开始分析数据:', date)
     db_names = db_utils.create_db_name_dict(date)
     analyzer = topline.Analyzer(db_names['data'])
-    analyzer.generate(_ORDER_BY_KEYWORD[0])
+    analyzer.generate()
 
 
 if __name__ == '__main__':
