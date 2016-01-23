@@ -174,8 +174,7 @@ def _create_data_table(conn):
             price REAL,
             month_sales INTEGER,
             description TEXT,
-            category_id INTEGER,
-            specfoods_json TEXT
+            category_id INTEGER
             );
 
         CREATE INDEX restaurant_id_idx ON menus(restaurant_id);
@@ -255,10 +254,10 @@ def _create_log_table(conn):
     print('创建日志数据库...完成')
 
 
-
 def create_db_name_dict(date=None):
     date_part = date if date is not None else datetime.datetime.now().strftime("%Y-%m-%d")
     return {
+        'date': date,
         'status': date_part + '-status.db',
         'data': date_part + '-data.db',
         'log': date_part + '-log.db',
@@ -281,9 +280,6 @@ def create_database(central, depth):
 
     print('数据库初始化完成')
     return db_names
-
-
-
 
 
 def continue_database(date):

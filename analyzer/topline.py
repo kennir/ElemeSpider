@@ -2,6 +2,7 @@ import pandas as pd
 import sqlalchemy
 from pandas import ExcelWriter
 
+from dbutils import *
 
 _ORDER_BY_KEYWORD = ['rating_count', 'month_sales', 'revenue']
 
@@ -29,16 +30,18 @@ _AVENAGE_PRICE = 'average_price'
 
 
 class Analyzer(object):
-    def __init__(self, db_name):
-        self.db_name = db_name
+    def __init__(self, date):
+        self.date = date
+        self.db_name = db_utils.create_db_name_dict(date)['data']
         self.order_by = 'rating_count'
         self.ranking_list_size = 10
-        self.restaurant_list_size = 25
-        self.menu_list_size = 25
+        self.restaurant_list_size = 150
+        self.menu_list_size = 150
+        self.scaling = 0.1
 
-        print('加载数据库', db_name, '...')
+        print('加载数据库', self.db_name, '...')
         print('----------------------------------------------')
-        engine = sqlalchemy.create_engine('sqlite:///' + db_name)
+        engine = sqlalchemy.create_engine('sqlite:///' + self.db_name)
         self.restaurants_db = pd.read_sql_table('restaurants', engine)
         print('商家数(独立):\t', self.restaurants_db.shape[0])
         self.menus_db = pd.read_sql_table('menus', engine)
@@ -203,7 +206,6 @@ class Analyzer(object):
         return df
 
     def _generate_restaurant_report(self, restaurant_db):
-        print('--------------')
         print('生成商家报告...')
 
         def generate_restaurant_ranking(restaurant_db, order_by, restaurant_list_size):
@@ -219,7 +221,7 @@ class Analyzer(object):
         df = generate_restaurant_ranking(restaurant_db, self.order_by, self.restaurant_list_size)
 
         for pr in _PRICE_RANGES:
-            print('生成商家报告({}-{})...'.format(pr['low'], pr['high']))
+            # print('生成商家报告({}-{})...'.format(pr['low'], pr['high']))
             filter_df = restaurant_db[
                 (restaurant_db[_AVENAGE_PRICE] >= pr['low']) & (restaurant_db[_AVENAGE_PRICE] <= pr['high'])]
             df = pd.concat([df, generate_restaurant_ranking(filter_df, self.order_by, self.restaurant_list_size)],
@@ -233,23 +235,25 @@ class Analyzer(object):
         return df
 
     def _generate_menu_report(self, menus_db):
-        print('--------------')
         print('生成菜品报告...')
 
-        f = {'rating_count': 'sum', 'month_sales': 'sum', 'price': 'mean'}
-        menus_df = menus_db.loc[:, ['name', 'rating_count', 'month_sales', 'price']].groupby('name').agg(f)
+        f = {'rating_count': 'sum', 'month_sales': 'sum', 'price': 'mean', 'revenue': 'sum' }
+        menus_df = menus_db.loc[:, ['name', 'rating_count', 'month_sales', 'price', 'revenue']].groupby('name').agg(f)
 
         def generate_menu_ranking(menu_df, order_by, menu_list_size):
-            if order_by == 'revenue': order_by = 'price'
             output_df = menu_df.sort_values(by=order_by, ascending=False).iloc[0:menu_list_size].reset_index(drop=False)
             output_df = self._check_row_count(output_df, menu_list_size)
             return output_df
 
         df = generate_menu_ranking(menus_df, self.order_by, self.menu_list_size)
+        del df['revenue']
+
         for pr in _PRICE_RANGES:
-            print('生成菜品报告({}-{})...'.format(pr['low'], pr['high']))
-            filter_df = menus_df[(menus_df['price'] >= pr['low']) & (menus_df['price'] <= pr['high'])]
-            df = pd.concat([df, generate_menu_ranking(filter_df, self.order_by, self.menu_list_size)], axis=1)
+            # print('生成菜品报告({}-{})...'.format(pr['low'], pr['high']))
+            dest_df = menus_df[(menus_df['price'] >= pr['low']) & (menus_df['price'] <= pr['high'])]
+            dest_df = generate_menu_ranking(dest_df, self.order_by, self.menu_list_size)
+            del dest_df['revenue']
+            df = pd.concat([df, dest_df], axis=1)
 
         df.columns = ['推荐菜', '点评数', '销量', '价格',
                       '推荐菜(<30)', '点评数(<30)', '销量(<30)', '价格(<30)',
@@ -260,10 +264,8 @@ class Analyzer(object):
         return df
 
     def _generate_restaurant_distribution(self, restaurant_db):
-        print('--------------')
         print('生成商家分布报告...')
 
-        
         order_by_name = _COLUMN_NAME_DICT[self.order_by]
         columns = [{'cnt': '2.0 店铺数', 'sum': '2.1 {}'.format(order_by_name), 'avg': '2.1 平均'},
                    {'cnt': '3.0 店铺数(<30)', 'sum': '3.1 {}(<30)'.format(order_by_name), 'avg': '3.1 平均(<30)'},
@@ -296,10 +298,11 @@ class Analyzer(object):
 
         category_df = self._generate_category_ranking(restaurant_db, size=self.ranking_list_size, expandable=False)
         dist = generate_distribution_by_category(restaurant_db, self.order_by, columns[0])
+        dist = pd.concat([category_df, dist], axis=1)
 
         column_index = 1
         for pr in _PRICE_RANGES:
-            print('生成商家分布报告({}-{})...'.format(pr['low'], pr['high']))
+            # print('生成商家分布报告({}-{})...'.format(pr['low'], pr['high']))
             df = restaurant_db[
                 (restaurant_db[_AVENAGE_PRICE] >= pr['low']) & (restaurant_db[_AVENAGE_PRICE] <= pr['high'])]
             df = generate_distribution_by_category(df, self.order_by, columns[column_index])
@@ -317,15 +320,14 @@ class Analyzer(object):
         sheet_names = ['汇总', '<30', '31 - 50', '51 = 80', '81 - 120', '>121', '商家', '菜单', '分布']
 
         reports = []
-
-        print('\n\n生成Excel:\t', excel_filename)
         print('----------------------------------------------')
+        print('生成Excel:\t', excel_filename)
         print('生成分类总榜...')
         reports.append(self._generate_comprehensive_report(self.restaurants_db, self.menus_db))
 
         # 生成所有的价格分榜单
         for price_range in _PRICE_RANGES:
-            print('生成分类榜({}-{})...'.format(price_range['low'], price_range['high']))
+            # print('生成分类榜({}-{})...'.format(price_range['low'], price_range['high']))
             reports.append(self._generate_comprehensive_report(self.restaurants_db, self.menus_db, price_range))
 
         reports.append(self._generate_restaurant_report(self.restaurants_db))
@@ -336,7 +338,27 @@ class Analyzer(object):
             for idx in range(len(reports)):
                 reports[idx].to_excel(writer, sheet_names[idx])
 
+    def _scale(self):
+        """
+        减少特定种类的饭店的数值
+        """
+        print('对特定种类(麻辣烫,香锅,烧烤)的商店缩放数据...')
+
+        categories = ['麻辣烫', '香锅', '烧烤']
+        columns = ['month_sales', 'rating_count']
+        for cat in categories:
+            for col in columns:
+                self.restaurants_db.loc[self.restaurants_db.cat_name == cat, col] = self.restaurants_db.loc[
+                                                                                        self.restaurants_db.cat_name == cat, col] * self.scaling
+
     def generate(self):
         for order_by in _ORDER_BY_KEYWORD:
             self.order_by = order_by
-            self._create_excel('top({}).xlsx'.format(_COLUMN_NAME_DICT[self.order_by]))
+            self._create_excel('{}-{}.xlsx'.format(self.date, _COLUMN_NAME_DICT[self.order_by]))
+
+        print('=====================================')
+        self._scale()
+
+        for order_by in _ORDER_BY_KEYWORD:
+            self.order_by = order_by
+            self._create_excel('{}-{}-缩放.xlsx'.format(self.date, _COLUMN_NAME_DICT[self.order_by]))

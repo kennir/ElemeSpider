@@ -31,14 +31,12 @@ def start_new_mission():
     menu_fetcher = worker.ProcessingLauncher(db_names, worker.fetch_menu_processor)
     menu_fetcher.run()
 
-
-
+    return db_names
 
 
 def start_analysis_mission(date):
     print('开始分析数据:', date)
-    db_names = db_utils.create_db_name_dict(date)
-    analyzer = topline.Analyzer(db_names['data'])
+    analyzer = topline.Analyzer(date)
     analyzer.generate()
 
 
@@ -53,4 +51,5 @@ if __name__ == '__main__':
     elif args.db_name is not None:
         pass
     else:
-        start_new_mission()
+        db_names = start_new_mission()
+        start_analysis_mission(db_names['date'])

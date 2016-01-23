@@ -202,8 +202,8 @@ class MenuFetcher(object):
     def _write_cache_to_database(self):
         with db_utils.connect_database(self.db_names['data']) as conn:
             conn.executemany('''
-                INSERT INTO menus(restaurant_id,name,pinyin_name,rating,rating_count,price,month_sales,description,category_id,specfoods_json)
-                VALUES(?,?,?,?,?,?,?,?,?,?)
+                INSERT INTO menus(restaurant_id,name,pinyin_name,rating,rating_count,price,month_sales,description,category_id)
+                VALUES(?,?,?,?,?,?,?,?,?)
             ''', self._menu_cache)
             conn.commit()
         self._menu_cache = []
@@ -247,7 +247,6 @@ class MenuFetcher(object):
                     food_json['month_sales'],
                     food_json['description'],
                     food_json['category_id'],
-                    str(food_json['specfoods'])
                 ))
 
     def _fetch_restaurant(self, restaurant_id):
