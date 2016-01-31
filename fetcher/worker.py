@@ -231,6 +231,11 @@ class MenuFetcher(object):
         price = 0
         for f_json in specfoods_json:
             price += float(f_json['price'])
+
+        count = len(specfoods_json)
+        if count is not 0:
+            price /= count
+
         return price
 
     def _store_menus(self, restaurant_id, menus):
