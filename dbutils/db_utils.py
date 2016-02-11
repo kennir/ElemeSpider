@@ -257,7 +257,7 @@ def _create_log_table(conn):
 def create_db_name_dict(date=None):
     date_part = date if date is not None else datetime.datetime.now().strftime("%Y-%m-%d")
     return {
-        'date': date,
+        'date': date_part,
         'status': date_part + '-status.db',
         'data': date_part + '-data.db',
         'log': date_part + '-log.db',
