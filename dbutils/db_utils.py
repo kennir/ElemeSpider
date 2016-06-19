@@ -282,8 +282,31 @@ def create_database(central, depth):
     return db_names
 
 
-def continue_database(date):
-    db_names = create_db_name_dict(date=date)
+def create_database_sequence(centrals, depth):
+    db_name_sequence = []
+    for central in centrals:
+        db_names = {
+            'date': datetime.datetime.now().strftime("%Y-%m-%d"),
+            'status': central + '-statuas.db',
+            'data': central + '-data.db',
+            'log': central + '-log.db'
+        }
+
+        print('初始化数据库:\n状态数据:"{}"\n商家数据:"{}"\n日志数据:"{}"...'.format(
+            db_names['status'], db_names['data'], db_names['log']))
+        with connect_database(db_names['status'], isolation_level='EXCLUSIVE') as conn:
+            _create_status_table(conn, central, depth)
+
+        with connect_database(db_names['data'], isolation_level='EXCLUSIVE') as conn:
+            _create_data_table(conn)
+            _create_categery_table(conn)
+
+        with connect_database(db_names['log'], isolation_level='EXCLUSIVE') as conn:
+            _create_log_table(conn)
+
+        db_name_sequence.append(db_names)
+    return db_name_sequence
+
 
 
 def prepare_restaurant_status_table(db_names):

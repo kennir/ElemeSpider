@@ -8,6 +8,12 @@ _DEFAULT_CENTRAL = 'wtw3sm0'
 _DEFAULT_DEPTH = 65
 
 
+_CENTRAL_SEQUENCE = ['wtw3esj', 'wtw3ef9', 'wtw3syu']
+_CENTRAL_SEQUENCE_DEPTH = 40
+
+
+
+
 def _parse_args():
     """
     :return: argparse.parse_args
@@ -20,8 +26,8 @@ def _parse_args():
     return parse.parse_args()
 
 
-def start_new_mission():
-    db_names = db_utils.create_database(central, depth)
+def start_new_mission(db_names):
+    # db_names = db_utils.create_database(central, depth)
 
     restaurant_fetcher = worker.ProcessingLauncher(db_names, worker.fetch_restaurant_processor)
     restaurant_fetcher.run()
@@ -33,6 +39,14 @@ def start_new_mission():
 
     return db_names
 
+def start_new_mission_sequence():
+    db_name_sequence = db_utils.create_database_sequence(_CENTRAL_SEQUENCE, _CENTRAL_SEQUENCE_DEPTH)
+    for db_names in db_name_sequence:
+        start_new_mission(db_names)
+        print('One of Sequence finished!')
+
+
+
 
 def start_analysis_mission(date):
     print('开始分析数据:', date)
@@ -43,13 +57,13 @@ def start_analysis_mission(date):
 if __name__ == '__main__':
     args = _parse_args()
 
-    central = _DEFAULT_CENTRAL if args.central is None else args.central
-    depth = _DEFAULT_DEPTH if args.depth is None else args.depth
-
     if args.analysis is not None:
         start_analysis_mission(args.analysis)
-    elif args.db_name is not None:
-        pass
     else:
-        db_names = start_new_mission()
-        start_analysis_mission(db_names['date'])
+        start_new_mission_sequence()
+
+    # elif args.db_name is not None:
+        # pass
+    # else:
+        # db_names = start_new_mission()
+        # start_analysis_mission(db_names['date'])
