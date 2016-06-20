@@ -26,25 +26,24 @@ def _parse_args():
     return parse.parse_args()
 
 
-def start_new_mission(db_names):
-    # db_names = db_utils.create_database(central, depth)
-
+def fetch_restaurants(db_names):
     restaurant_fetcher = worker.ProcessingLauncher(db_names, worker.fetch_restaurant_processor)
     restaurant_fetcher.run()
+    # return db_names
 
+def fetch_menus(db_names):
     db_utils.prepare_restaurant_status_table(db_names)
-
     menu_fetcher = worker.ProcessingLauncher(db_names, worker.fetch_menu_processor)
     menu_fetcher.run()
 
-    return db_names
+
 
 def start_new_mission_sequence():
     db_name_sequence = db_utils.create_database_sequence(_CENTRAL_SEQUENCE, _CENTRAL_SEQUENCE_DEPTH)
     for db_names in db_name_sequence:
-        start_new_mission(db_names)
-        print('One of Sequence finished!')
-
+        fetch_restaurants(db_names)
+    for db_names in db_name_sequence:
+        fetch_menus(db_names)
 
 
 
