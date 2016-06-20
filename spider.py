@@ -58,6 +58,10 @@ if __name__ == '__main__':
 
     if args.analysis is not None:
         start_analysis_mission(args.analysis)
+    elif args.central is not None and args.depth is not None:
+        db_name_sequences = db_utils.create_database_sequence([args.central], args.depth)
+        fetch_restaurants(db_name_sequences[0])
+        fetch_menus(db_name_sequences[0])
     else:
         start_new_mission_sequence()
 
