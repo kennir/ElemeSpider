@@ -3,6 +3,7 @@ import argparse
 from analyzer import *
 from dbutils import *
 from fetcher import *
+import geohash
 
 _DEFAULT_CENTRAL = 'wtw3sm0'
 _DEFAULT_DEPTH = 65
@@ -11,6 +12,8 @@ _DEFAULT_DEPTH = 65
 _CENTRAL_SEQUENCE = ['wtw3esj', 'wtw3ef9', 'wtw3syu']
 _CENTRAL_SEQUENCE_DEPTH = 40
 
+
+_LIMIT_LONGLAT = [[31.2243287344,121.450360246], [31.2152904,121.4564706], [31.2384794,121.5033301]]
 
 
 
@@ -21,6 +24,7 @@ def _parse_args():
     parse = argparse.ArgumentParser(description='ele.me spider v2.0')
     parse.add_argument('-d', '--db_name', help='Continuous task for database', dest='db_name')
     parse.add_argument('-a', '--analysis', help="Analysis only", dest='analysis')
+    parse.add_argument('-l', '--limition', help='Limit range',action='store_true')
     parse.add_argument('-c', '--central', help='Central geohash', dest='central')
     parse.add_argument('-p', '--depth', help='Depth of searching', dest='depth', type=int)
     return parse.parse_args()
@@ -47,9 +51,16 @@ def start_new_mission_sequence():
 
 
 
-def start_analysis_mission(date):
-    print('开始分析数据:', date)
-    analyzer = topline.Analyzer(date)
+def start_analysis_mission(db_name, limition=False):
+    print('开始分析数据:', db_name)
+
+    lon = None
+    lat = None
+
+    if limition is True:
+        lat,lon = geohash.decode(db_name)
+
+    analyzer = topline.Analyzer(db_name, lon, lat, 1.5)
     analyzer.generate()
 
 
@@ -57,7 +68,7 @@ if __name__ == '__main__':
     args = _parse_args()
 
     if args.analysis is not None:
-        start_analysis_mission(args.analysis)
+        start_analysis_mission(args.analysis, False if not args.limition else True)
     elif args.central is not None and args.depth is not None:
         db_name_sequences = db_utils.create_database_sequence([args.central], args.depth)
         fetch_restaurants(db_name_sequences[0])

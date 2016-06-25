@@ -1,6 +1,8 @@
 import pandas as pd
 import sqlalchemy
 from pandas import ExcelWriter
+from math import radians, cos, sin, asin, sqrt
+from math import *
 
 from dbutils import *
 
@@ -26,22 +28,53 @@ _PRICE_RANGES = [{'low': 1.0, 'high': 30.0},
                  {'low': 121.0, 'high': 99999.0}]
 
 # 用哪个值作为平均价格 [ mean_price, average_price ]
-_AVENAGE_PRICE = 'average_price'
+_AVERAGE_PRICE = 'average_price'
 
 
 class Analyzer(object):
-    def __init__(self, date):
-        self.date = date
-        self.db_name = db_utils.create_db_name_dict(date)['data']
+    is_limit_range = False
+
+    # input Lat_A 纬度A
+    # input Lng_A 经度A
+    # input Lat_B 纬度B
+    # input Lng_B 经度B
+    # output distance 距离(km)
+    def calcDistance(Lat_A, Lng_A, Lat_B, Lng_B):
+        ra = 6378.140  # 赤道半径 (km)
+        rb = 6356.755  # 极半径 (km)
+        flatten = (ra - rb) / ra  # 地球扁率
+        rad_lat_A = radians(Lat_A)
+        rad_lng_A = radians(Lng_A)
+        rad_lat_B = radians(Lat_B)
+        rad_lng_B = radians(Lng_B)
+        pA = atan(rb / ra * tan(rad_lat_A))
+        pB = atan(rb / ra * tan(rad_lat_B))
+        xx = acos(sin(pA) * sin(pB) + cos(pA) * cos(pB) * cos(rad_lng_A - rad_lng_B))
+        c1 = (sin(xx) - xx) * (sin(pA) + sin(pB)) ** 2 / cos(xx / 2) ** 2
+        c2 = (sin(xx) + xx) * (sin(pA) - sin(pB)) ** 2 / sin(xx / 2) ** 2
+        dr = flatten / 8 * (c1 - c2)
+        distance = ra * (xx + dr)
+        return distance
+
+
+
+
+
+
+
+    def __init__(self, db_name, lon=None, lat=None, range=None):
+        self.db_name = db_name
+        self.db_file = db_name + '-data.db'
         self.order_by = 'rating_count'
         self.ranking_list_size = 10
         self.restaurant_list_size = 150
         self.menu_list_size = 150
         self.scaling = 0.1
 
-        print('加载数据库', self.db_name, '...')
+
+        print('加载数据库', self.db_file, '...')
         print('----------------------------------------------')
-        engine = sqlalchemy.create_engine('sqlite:///' + self.db_name)
+        engine = sqlalchemy.create_engine('sqlite:///' + self.db_file)
         self.restaurants_db = pd.read_sql_table('restaurants', engine)
         print('商家数(独立):\t', self.restaurants_db.shape[0])
         self.menus_db = pd.read_sql_table('menus', engine)
@@ -50,6 +83,12 @@ class Analyzer(object):
         restaurant_categories_db = pd.read_sql_table('restaurant_categories', engine)
         print('商家数(分类):\t', restaurant_categories_db.shape[0])
         print('----------------------------------------------')
+
+
+        if lon is not None and lat is not None and range is not None:
+            print("排除范围外的商家")
+            self.restaurants_db = self.restaurants_db[self.restaurants_db.apply(lambda x: Analyzer.calcDistance(x['latitude'],x['longitude'],lat,lon) <= range, axis=1)]
+            print("排除后商家数(独立):\t", self.restaurants_db.shape[0])
 
         print('计算营业额...')
         self.menus_db['revenue'] = self.menus_db['price'] * self.menus_db['month_sales']
@@ -181,8 +220,8 @@ class Analyzer(object):
         restaurants_df = restaurants_db
         menus_df = menus_db
         if price_range is not None:
-            restaurants_df = restaurants_df[(restaurants_df[_AVENAGE_PRICE] >= price_range['low']) & (
-                restaurants_df[_AVENAGE_PRICE] <= price_range['high'])]
+            restaurants_df = restaurants_df[(restaurants_df[_AVERAGE_PRICE] >= price_range['low']) & (
+                restaurants_df[_AVERAGE_PRICE] <= price_range['high'])]
             menus_df = menus_df[(menus_df['price'] >= price_range['low']) & (menus_df['price'] <= price_range['high'])]
 
         df = self._generate_category_ranking(restaurants_df, size=self.ranking_list_size)
@@ -210,12 +249,12 @@ class Analyzer(object):
 
         def generate_restaurant_ranking(restaurant_db, order_by, restaurant_list_size):
             df = restaurant_db.loc[:,
-                 ['name', 'rating_count', 'month_sales', 'revenue', _AVENAGE_PRICE]].sort_values(by=order_by,
+                 ['name', 'rating_count', 'month_sales', 'revenue', _AVERAGE_PRICE]].sort_values(by=order_by,
                                                                                                  ascending=False).drop_duplicates(
                     subset='name').iloc[
                  0:restaurant_list_size].reset_index(drop=True)
 
-            df = df.reindex_axis(['name', 'rating_count', 'month_sales', 'revenue', _AVENAGE_PRICE], axis=1)
+            df = df.reindex_axis(['name', 'rating_count', 'month_sales', 'revenue', _AVERAGE_PRICE], axis=1)
             return df
 
         df = generate_restaurant_ranking(restaurant_db, self.order_by, self.restaurant_list_size)
@@ -223,7 +262,7 @@ class Analyzer(object):
         for pr in _PRICE_RANGES:
             # print('生成商家报告({}-{})...'.format(pr['low'], pr['high']))
             filter_df = restaurant_db[
-                (restaurant_db[_AVENAGE_PRICE] >= pr['low']) & (restaurant_db[_AVENAGE_PRICE] <= pr['high'])]
+                (restaurant_db[_AVERAGE_PRICE] >= pr['low']) & (restaurant_db[_AVERAGE_PRICE] <= pr['high'])]
             df = pd.concat([df, generate_restaurant_ranking(filter_df, self.order_by, self.restaurant_list_size)],
                            axis=1)
         df.columns = ['店铺名', '点评数', '销量', '营业额', '平均售价',
@@ -279,12 +318,12 @@ class Analyzer(object):
 
             num_restaurants = restaurant_df.shape[0]
             sum_value = restaurant_df[order_by].sum()
-            avenage_value = (sum_value / num_restaurants) if num_restaurants != 0 else 0
+            average_value = (sum_value / num_restaurants) if num_restaurants != 0 else 0
 
             output_df = pd.DataFrame({
                 column['cnt']: num_restaurants,
                 column['sum']: sum_value,
-                column['avg']: avenage_value,
+                column['avg']: average_value,
             }, index=[0])
             output_df = output_df.reindex_axis([column['cnt'], column['sum'], column['avg']], axis=1)
             return output_df
@@ -304,7 +343,7 @@ class Analyzer(object):
         for pr in _PRICE_RANGES:
             # print('生成商家分布报告({}-{})...'.format(pr['low'], pr['high']))
             df = restaurant_db[
-                (restaurant_db[_AVENAGE_PRICE] >= pr['low']) & (restaurant_db[_AVENAGE_PRICE] <= pr['high'])]
+                (restaurant_db[_AVERAGE_PRICE] >= pr['low']) & (restaurant_db[_AVERAGE_PRICE] <= pr['high'])]
             df = generate_distribution_by_category(df, self.order_by, columns[column_index])
             column_index += 1
             dist = pd.concat([dist, df], axis=1)
@@ -354,11 +393,11 @@ class Analyzer(object):
     def generate(self):
         for order_by in _ORDER_BY_KEYWORD:
             self.order_by = order_by
-            self._create_excel('{}-{}.xlsx'.format(self.date, _COLUMN_NAME_DICT[self.order_by]))
+            self._create_excel('{}-{}.xlsx'.format(self.db_name, _COLUMN_NAME_DICT[self.order_by]))
 
         print('=====================================')
         self._scale()
 
         for order_by in _ORDER_BY_KEYWORD:
             self.order_by = order_by
-            self._create_excel('{}-{}-缩放.xlsx'.format(self.date, _COLUMN_NAME_DICT[self.order_by]))
+            self._create_excel('{}-{}-缩放.xlsx'.format(self.db_name, _COLUMN_NAME_DICT[self.order_by]))
