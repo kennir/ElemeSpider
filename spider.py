@@ -9,11 +9,11 @@ _DEFAULT_CENTRAL = 'wtw3sm0'
 _DEFAULT_DEPTH = 65
 
 
-_CENTRAL_SEQUENCE = ['wtw3esj', 'wtw3ef9', 'wtw3syu']
-_CENTRAL_SEQUENCE_DEPTH = 40
+_CENTRAL_SEQUENCE = ['wtw3esj', 'wtw3ef9', 'wtw3syu', 'wtw2fy9']
+_CENTRAL_SEQUENCE_DEPTH = 25
 
 
-_LIMIT_LONGLAT = [[31.2243287344,121.450360246], [31.2152904,121.4564706], [31.2384794,121.5033301]]
+_LIMIT_LONGLAT = [[31.2243287344,121.450360246], [31.2152904,121.4564706], [31.2384794,121.5033301], [31.1053198, 121.4114296]]
 
 
 
@@ -60,7 +60,7 @@ def start_analysis_mission(db_name, limition=False):
     if limition is True:
         lat,lon = geohash.decode(db_name)
 
-    analyzer = topline.Analyzer(db_name, lon, lat, 1.5)
+    analyzer = topline.Analyzer(db_name, lon, lat, 3)
     analyzer.generate()
 
 

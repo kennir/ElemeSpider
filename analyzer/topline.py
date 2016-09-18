@@ -1,10 +1,8 @@
+from math import *
+
 import pandas as pd
 import sqlalchemy
 from pandas import ExcelWriter
-from math import radians, cos, sin, asin, sqrt
-from math import *
-
-from dbutils import *
 
 _ORDER_BY_KEYWORD = ['rating_count', 'month_sales', 'revenue']
 
@@ -56,12 +54,6 @@ class Analyzer(object):
         distance = ra * (xx + dr)
         return distance
 
-
-
-
-
-
-
     def __init__(self, db_name, lon=None, lat=None, range=None):
         self.db_name = db_name
         self.db_file = db_name + '-data.db'
@@ -70,7 +62,6 @@ class Analyzer(object):
         self.restaurant_list_size = 150
         self.menu_list_size = 150
         self.scaling = 0.1
-
 
         print('加载数据库', self.db_file, '...')
         print('----------------------------------------------')
@@ -84,23 +75,31 @@ class Analyzer(object):
         print('商家数(分类):\t', restaurant_categories_db.shape[0])
         print('----------------------------------------------')
 
-
         if lon is not None and lat is not None and range is not None:
             print("排除范围外的商家")
-            self.restaurants_db = self.restaurants_db[self.restaurants_db.apply(lambda x: Analyzer.calcDistance(x['latitude'],x['longitude'],lat,lon) <= range, axis=1)]
+            self.restaurants_db = self.restaurants_db[self.restaurants_db.apply(
+                lambda x: Analyzer.calcDistance(x['latitude'], x['longitude'], lat, lon) <= range, axis=1)]
             print("排除后商家数(独立):\t", self.restaurants_db.shape[0])
+
+        print('丢弃菜单重复数据')
+        print('丢弃前菜单数量:\t', self.menus_db.shape[0])
+        self.menus_db = self.menus_db.drop_duplicates(['name', 'restaurant_id'])
+        print('丢弃后菜单数量:\t', self.menus_db.shape[0])
+
+        self.menus_db = self.menus_db[self.menus_db['restaurant_id'].isin(self.restaurants_db['id']) != False]
+        print('范围内饭店的菜单数量:\t', self.menus_db.shape[0])
 
         print('计算营业额...')
         self.menus_db['revenue'] = self.menus_db['price'] * self.menus_db['month_sales']
 
         print('合并营业额...')
         revenue_db = self.menus_db.loc[:, ['restaurant_id', 'revenue']].groupby(
-                'restaurant_id').sum().reset_index(drop=False)
+            'restaurant_id').sum().reset_index(drop=False)
         self.restaurants_db = pd.merge(self.restaurants_db, revenue_db, left_on='id', right_on='restaurant_id',
                                        how='left')
         print('计算菜单平均价...')
         mean_db = self.menus_db.loc[:, ['restaurant_id', 'price']].groupby('restaurant_id').mean().reset_index(
-                drop=False).rename(columns={'price': 'mean_price'})
+            drop=False).rename(columns={'price': 'mean_price'})
         self.restaurants_db = pd.merge(self.restaurants_db, mean_db, on='restaurant_id')
 
         print('计算平均价格...')
@@ -108,6 +107,10 @@ class Analyzer(object):
 
         self.restaurants_db['revenue'] = self.restaurants_db['revenue'].fillna(0)
         del self.restaurants_db['restaurant_id']
+
+        self.num_restaurants = self.restaurants_db.shape[0]
+        self.total_revenue = self.restaurants_db['revenue'].sum()
+        self.total_sales = self.restaurants_db['month_sales'].sum()
 
         print('合并商家类型...')
         self.restaurants_db = pd.merge(self.restaurants_db, restaurant_categories_db, left_on='id',
@@ -200,7 +203,7 @@ class Analyzer(object):
         :return: 商铺的分类排行榜
         """
         df = restaurants_db.loc[:, ['cat_name', 'rating_count', 'month_sales', 'revenue']].groupby(
-                'cat_name').sum().sort_values(by=self.order_by, ascending=False).reset_index(drop=False)
+            'cat_name').sum().sort_values(by=self.order_by, ascending=False).reset_index(drop=False)
         df.columns = ['1.0 菜系品类', '1.1 点评数', '1.1 月销量', '1.1 营业额']
 
         if size is not None:
@@ -209,6 +212,17 @@ class Analyzer(object):
             if expandable is True:
                 df = pd.concat([df] * size).sort_values(by='1.1 {}'.format(_COLUMN_NAME_DICT[self.order_by]),
                                                         ascending=False).reset_index(drop=True)
+        return df
+
+    def _generate_summary(self, restaurants_db):
+        """
+        创建预览
+        :param restaurants_db:
+        :return:
+        """
+        values = [self.num_restaurants, self.total_revenue, self.total_revenue / self.num_restaurants, self.total_sales]
+
+        df = pd.DataFrame(values, index=['商家数', '总营业额', '平均营业额/商家', '总销量(未做缩放)'])
         return df
 
     def _generate_comprehensive_report(self, restaurants_db, menus_db, price_range=None):
@@ -239,9 +253,9 @@ class Analyzer(object):
         ]
         for dish_type in dish_types:
             df = pd.concat(
-                    [df,
-                     self._generate_menu_ranking_by_categories(cat_df, menus_df, dish_type['cat'], dish_type['col'])],
-                    axis=1)
+                [df,
+                 self._generate_menu_ranking_by_categories(cat_df, menus_df, dish_type['cat'], dish_type['col'])],
+                axis=1)
         return df
 
     def _generate_restaurant_report(self, restaurant_db):
@@ -251,7 +265,7 @@ class Analyzer(object):
             df = restaurant_db.loc[:,
                  ['name', 'rating_count', 'month_sales', 'revenue', _AVERAGE_PRICE]].sort_values(by=order_by,
                                                                                                  ascending=False).drop_duplicates(
-                    subset='name').iloc[
+                subset='name').iloc[
                  0:restaurant_list_size].reset_index(drop=True)
 
             df = df.reindex_axis(['name', 'rating_count', 'month_sales', 'revenue', _AVERAGE_PRICE], axis=1)
@@ -276,8 +290,9 @@ class Analyzer(object):
     def _generate_menu_report(self, menus_db):
         print('生成菜品报告...')
 
-        f = {'rating_count': 'sum', 'month_sales': 'sum', 'price': 'mean', 'revenue': 'sum' }
-        menus_df = menus_db.loc[:, ['name', 'rating_count', 'month_sales', 'price', 'revenue']].groupby('name').agg(f)
+        f = {'rating_count': 'sum', 'month_sales': 'sum', 'price': 'mean', 'revenue': 'sum'}
+        menus_df = menus_db.loc[:, ['name', 'rating_count', 'month_sales', 'price', 'revenue']].groupby('name').agg(
+            f).reindex_axis(['rating_count', 'month_sales', 'price', 'revenue'], axis=1)
 
         def generate_menu_ranking(menu_df, order_by, menu_list_size):
             output_df = menu_df.sort_values(by=order_by, ascending=False).iloc[0:menu_list_size].reset_index(drop=False)
@@ -356,12 +371,13 @@ class Analyzer(object):
         :param excel_filename: EXCEL文件名
         :return: None
         """
-        sheet_names = ['汇总', '<30', '31 - 50', '51 = 80', '81 - 120', '>121', '商家', '菜单', '分布']
+        sheet_names = ['Summary', '汇总', '<30', '31 - 50', '51 = 80', '81 - 120', '>121', '商家', '菜单', '分布']
 
         reports = []
         print('----------------------------------------------')
         print('生成Excel:\t', excel_filename)
         print('生成分类总榜...')
+        reports.append(self._generate_summary(self.restaurants_db))
         reports.append(self._generate_comprehensive_report(self.restaurants_db, self.menus_db))
 
         # 生成所有的价格分榜单
